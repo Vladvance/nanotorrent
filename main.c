@@ -40,6 +40,10 @@ struct Handshake {
     char peer_id[20];
 };
 
+int sendHandshake(int fd) {
+    send(
+}
+
 //pretend to generate uniform number
 int randint(int n)
 {
@@ -132,9 +136,8 @@ static void freeMetainfo(struct Metainfo *mi)
     free(mi->info.pieces);
 }
 
-static void saveToTorrentFile(struct Metainfo *mi, char *destName)
+static void saveToTorrentFile(char *destName, struct Metainfo *mi)
 {
-
     be_node_t *info, *meta;
     meta = be_alloc(DICT);
     info = be_alloc(DICT);
@@ -159,8 +162,40 @@ static void saveToTorrentFile(struct Metainfo *mi, char *destName)
         perror("fopen");
         exit(1);
     }
-
+    putline(string,size,dest);
     fclose(dest);
+}
+
+static void readFromTorrentFile(char *srcname, struct Metainfo *mi)
+{
+    char* metastr = NULL;
+    size_t len = 0;
+    ssize_t size;
+
+    FILE* src = fopen(srcname, "r");
+
+    if(src == NULL) {
+        perror("readFromTorrentFile: fopen");
+        exit(1);
+    }
+
+    size = getline(&metastr, &len, src);
+
+    fclose(src);
+    if (metastr)
+        free(metastr);
+        exit(0);
+
+   be_node_t *metainfo; 
+   size = be_decode(metainfo, metastr, size);
+
+   mi->announce = be_dict_lookup_cstr(metainfo,"announce");
+   
+   be_node_t *info = be_dict_lookup(metainfo,"info", &&info);
+   mi->info.length = be_dict_lookup_cstr(info,"length");
+   mi->info.name = be_dict_lookup_cstr(info,"name");
+   mi->info.piecelen = be_dict_lookup_num(info,"piece length");
+   mi->info.pieces = be_dict_lookup_cstr(info,"pieces");
 }
 
 void *get_in_addr(struct sockaddr *sa)
@@ -240,7 +275,6 @@ int connectToPeer(char* ip, char* port, int sockfd, struct addrinfo *client) {
     freeaddrinfo(peerinfo);
     return fd;
 }
-
 
 
 int main(int argc, char* argv[])
