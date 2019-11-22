@@ -20,7 +20,7 @@
 #define PIECE_LENGTH 262144 //256 KiB = 2^18 bytes
 #define BLOCK_LENGTH 32768 //32 KiB = 2^15 bytes
 #define DEFAULT_PORT "6969"
-#define VERSION_PREFIX "-NT0001-"
+#define PEERID_PREFIX "-NT0001-"
 #define PEER_NUM 30
 
 struct Info {
@@ -37,7 +37,7 @@ struct Metainfo {
 
 struct Handshake {
     char reserved[8];
-    char info_hash[20];
+    char info_hash[41];
     char peer_id[20];
 };
 
@@ -53,10 +53,10 @@ void testApp() {
     struct Metainfo mi, mi2;
     struct Peer peers[PEER_NUM];
     int serverFD, peerFD[PEER_NUM];
-    generateMetainfo("WoP.txt", &mi);
+    generateMetainfo("WaP.txt", &mi);
 
-    saveToTorrentFile("WoP.torrent", &mi);
-    readFromTorrentFile("WoP.torrent", &mi2);
+    saveToTorrentFile("WaP.torrent", &mi);
+    readFromTorrentFile("WaP.torrent", &mi2);
 
     serverFD = connectToServer(&mi);
     sendRequestToServer(serverFD, &mi, &peers[0]);
@@ -65,6 +65,7 @@ void testApp() {
         peerFD[i] = connectToPeer(&peers[i]);
     }
 }
+
 
 int sendHandshake(int fd) {
     printf("Sending Handshake");
@@ -90,16 +91,17 @@ int randint(int n)
     }
 }
 
-static void generatePeerId(char *peer_id)
+int generatePeerId(char *peer_id)
 {
-    strcpy(peer_id, VERSION_PREFIX);
+    strcpy(peer_id, PEERID_PREFIX);
     sprintf(&peer_id[8], "%d%d", randint(1000000), randint(1000000));
-    printf("%s", peer_id);
+    printf("Generated peerid: %s\n", peer_id);
+    return 0;
 }
 
-static void generateMetainfo(char *originFileName, struct Metainfo *mi)
+int generateMetainfo(const char *originFileName, struct Metainfo *mi)
 {
-    unsigned char ibuf[PIECE_LENGTH], obuf[20];
+    unsigned char ibuf[PIECE_LENGTH], obuf[20], sha1_buf[41];
 
     FILE *origin = fopen(originFileName, "r+");
 
@@ -122,7 +124,7 @@ static void generateMetainfo(char *originFileName, struct Metainfo *mi)
     mi->info.length = stat_buf.st_size;
 
     //size needed for pieces field (Npieces * 20 + )
-    int pieces_s = ceil((float)mi->info.length/PIECE_LENGTH)*20+1;
+    int pieces_s = ceil((float)mi->info.length/PIECE_LENGTH)*40+1;
     mi->info.pieces = (char*)malloc(pieces_s);
     mi->info.pieces[pieces_s-1] = '\0';
 
@@ -139,8 +141,14 @@ static void generateMetainfo(char *originFileName, struct Metainfo *mi)
         }
 
         SHA1(ibuf, n, obuf);
-        memcpy(pieces_pt, obuf, 20);
-        pieces_pt+=20;
+
+        for(int i = 0; i < 20; i++) {
+            sprintf((char*)(sha1_buf+2*i), "%02x", obuf[i]);
+        }
+        sha1_buf[40] = '\0';
+        
+        strcpy(pieces_pt, obuf);
+        pieces_pt+=40;
 
         printf("SHA1 for %3d piece (size %7d is:", k++, n);
 
@@ -161,7 +169,7 @@ static void freeMetainfo(struct Metainfo *mi)
     free(mi->info.pieces);
 }
 
-static void saveToTorrentFile(char *destName, struct Metainfo *mi)
+int saveToTorrentFile(const char *destName, struct Metainfo *mi)
 {
     be_node_t *info, *meta;
     meta = be_alloc(DICT);
@@ -191,7 +199,7 @@ static void saveToTorrentFile(char *destName, struct Metainfo *mi)
     fclose(dest);
 }
 
-static void readFromTorrentFile(char *srcname, struct Metainfo *mi)
+int readFromTorrentFile(const char *srcname, struct Metainfo *mi)
 {
     char* metastr = NULL;
     size_t len = 0;
