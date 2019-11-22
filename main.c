@@ -21,6 +21,7 @@
 #define BLOCK_LENGTH 32768 //32 KiB = 2^15 bytes
 #define DEFAULT_PORT "6969"
 #define VERSION_PREFIX "-NT0001-"
+#define PEER_NUM 30
 
 struct Info {
     uint32_t piecelen; //piece length
@@ -40,8 +41,34 @@ struct Handshake {
     char peer_id[20];
 };
 
+int generateMetainfo(const char* originFileName, struct Metainfo* mi);
+int saveToTorrentFile(const char* torrFileName, struct Metainfo* mi);
+int readFromTorrentFile(const char* torrFileName, struct Metainfo* mi);
+int connectToServer(struct Metainfo* mi);
+int sendRequestToServer(int serverFD, struct Metainfo* mi, struct Peer* peers);
+int connectToPeer(struct Peer* peer);
+
+
+void testApp() {
+    struct Metainfo mi, mi2;
+    struct Peer peers[PEER_NUM];
+    int serverFD, peerFD[PEER_NUM];
+    generateMetainfo("WoP.txt", &mi);
+
+    saveToTorrentFile("WoP.torrent", &mi);
+    readFromTorrentFile("WoP.torrent", &mi2);
+
+    serverFD = connectToServer(&mi);
+    sendRequestToServer(serverFD, &mi, &peers[0]);
+
+    for(int i = 0; i < PEER_NUM; i++) {
+        peerFD[i] = connectToPeer(&peers[i]);
+    }
+}
+
 int sendHandshake(int fd) {
-    send(
+    printf("Sending Handshake");
+    return fd;
 }
 
 //pretend to generate uniform number
@@ -49,8 +76,7 @@ int randint(int n)
 {
     if ((n - 1) == RAND_MAX) {
         return rand();
-    }
-    else {
+    } else {
         assert (n <= RAND_MAX);
 
         int end = RAND_MAX / n;
@@ -66,7 +92,6 @@ int randint(int n)
 
 static void generatePeerId(char *peer_id)
 {
-
     strcpy(peer_id, VERSION_PREFIX);
     sprintf(&peer_id[8], "%d%d", randint(1000000), randint(1000000));
     printf("%s", peer_id);
