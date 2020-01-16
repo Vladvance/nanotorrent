@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <math.h>
 #include <time.h>
+#include <unistd.h>
+#include <ctype.h>
 
 #include <netdb.h>
 #include <sys/types.h>
@@ -22,6 +24,8 @@
 #define DEFAULT_PORT "6969"
 #define PEERID_PREFIX "-NT0001-"
 #define PEER_NUM 30
+#define _GNU_SOURCE
+#define _OE_SOCKETS
 
 struct Info {
     uint32_t piecelen; //piece length
@@ -32,64 +36,73 @@ struct Info {
 
 struct Metainfo {
     struct Info info;
+    char infohash[20];
     char *announce; //announce URL of the tracker
 };
 
 struct Handshake {
     char reserved[8];
-    char info_hash[41];
-    char peer_id[20];
+    char info_hash[20];
+    char peer_id[21];
 };
 
+struct Peer {
+    char peerid[21];
+    uint32_t IPv4;
+    uint16_t port;
+    uint32_t uploaded;
+    uint32_t downloaded;
+    uint32_t left;
+};
+
+int generatePeerId();
 int generateMetainfo(const char* originFileName, struct Metainfo* mi);
 int saveToTorrentFile(const char* torrFileName, struct Metainfo* mi);
 int readFromTorrentFile(const char* torrFileName, struct Metainfo* mi);
-int connectToServer(struct Metainfo* mi);
-int sendRequestToServer(int serverFD, struct Metainfo* mi, struct Peer* peers);
-int connectToPeer(struct Peer* peer);
+void freeMetainfo(struct Metainfo* mi);
 
+int openClientSocket(struct addrinfo *client);
+int connectToServer(struct Metainfo* mi, int clientSocketFD);
+int processServer(int serverFD, struct Metainfo* mi, struct Peer* peers);
+int connectToPeer(struct Peer* peer, int clientSocketFD);
+int processPeer(int fd, struct Metainfo* mi);
+
+
+//helper functions
+int randint(int n);
 
 void testApp() {
     struct Metainfo mi, mi2;
-    struct Peer peers[PEER_NUM];
-    int serverFD, peerFD[PEER_NUM];
+    //struct Peer peers[PEER_NUM];
+    int clientSocketFD, serverFD, status;
+    //int peerFD[PEER_NUM];
+    struct addrinfo* client = NULL;
     generateMetainfo("WaP.txt", &mi);
 
     saveToTorrentFile("WaP.torrent", &mi);
     readFromTorrentFile("WaP.torrent", &mi2);
 
-    serverFD = connectToServer(&mi);
-    sendRequestToServer(serverFD, &mi, &peers[0]);
+    clientSocketFD = openClientSocket(client);
 
-    for(int i = 0; i < PEER_NUM; i++) {
-        peerFD[i] = connectToPeer(&peers[i]);
-    }
+    status = connectToServer(&mi, clientSocketFD);
+    if(status == -1) perror("connectToServer");
+
+    const char* str = "Hello Fucking World\n";
+    status = send(clientSocketFD, str, strlen(str), 0);
+    if(status == -1) perror("send");
+    //sendRequestToServer(serverFD, &mi, &peers[0]);
+
+//    for(int i = 0; i < PEER_NUM; i++) {
+//        peerFD[i] = connectToPeer(&peers[i]);
+//    }
+
+    freeMetainfo(&mi);
+    freeMetainfo(&mi2);
+    freeaddrinfo(client);
+    close(clientSocketFD);
+    close(serverFD);
 }
 
-
-int sendHandshake(int fd) {
-    printf("Sending Handshake");
-    return fd;
-}
-
-//pretend to generate uniform number
-int randint(int n)
-{
-    if ((n - 1) == RAND_MAX) {
-        return rand();
-    } else {
-        assert (n <= RAND_MAX);
-
-        int end = RAND_MAX / n;
-        assert (end > 0);
-        end *= n;
-        int r;
-
-        while ((r = rand()) >= end);
-
-        return r % n;
-    }
-}
 
 int generatePeerId(char *peer_id)
 {
@@ -98,6 +111,7 @@ int generatePeerId(char *peer_id)
     printf("Generated peerid: %s\n", peer_id);
     return 0;
 }
+
 
 int generateMetainfo(const char *originFileName, struct Metainfo *mi)
 {
@@ -118,22 +132,23 @@ int generateMetainfo(const char *originFileName, struct Metainfo *mi)
         perror("stat");
         exit(1);
     }
+    mi->announce = strdup("127.0.0.1");
 
     mi->info.piecelen = PIECE_LENGTH;
     mi->info.name = strdup(originFileName);
     mi->info.length = stat_buf.st_size;
 
-    //size needed for pieces field (Npieces * 20 + )
+    //size needed for pieces field (Npieces * 40 + 1)
     int pieces_s = ceil((float)mi->info.length/PIECE_LENGTH)*40+1;
     mi->info.pieces = (char*)malloc(pieces_s);
-    mi->info.pieces[pieces_s-1] = '\0';
+    mi->info.pieces[pieces_s] = '\0';
 
     printf("File: %s, Size: %u\n", mi->info.name, mi->info.length);
-    int k = 1, n;
+    int k = 1;
     char *pieces_pt = &mi->info.pieces[0];
 
     do {
-        n = fread(ibuf, 1, PIECE_LENGTH, origin);
+        int n = fread(ibuf, 1, PIECE_LENGTH, origin);
 
         if(ferror(origin) || n == 0) {
             perror("fread");
@@ -142,28 +157,24 @@ int generateMetainfo(const char *originFileName, struct Metainfo *mi)
 
         SHA1(ibuf, n, obuf);
 
+        unsigned char* sha_pt = &sha1_buf[0];
         for(int i = 0; i < 20; i++) {
-            sprintf((char*)(sha1_buf+2*i), "%02x", obuf[i]);
+            sha_pt += sprintf((char*)sha_pt, "%02x", obuf[i]);
         }
         sha1_buf[40] = '\0';
-        
-        strcpy(pieces_pt, obuf);
+
+        strcpy(pieces_pt, (char*)sha1_buf);
         pieces_pt+=40;
 
-        printf("SHA1 for %3d piece (size %7d is:", k++, n);
-
-        for (int i = 0; i < 20; i++) {
-            printf("%02x ", obuf[i]);
-        }
-
-        printf("\n");
+        printf("SHA1 for %3d piece (size %7d is: %s\n", k++, n, sha1_buf);
     }
     while (!feof(origin));
 
     fclose(origin);
+    return 0;
 }
 
-static void freeMetainfo(struct Metainfo *mi)
+void freeMetainfo(struct Metainfo *mi)
 {
     free(mi->info.name);
     free(mi->info.pieces);
@@ -195,8 +206,9 @@ int saveToTorrentFile(const char *destName, struct Metainfo *mi)
         perror("fopen");
         exit(1);
     }
-    putline(string,size,dest);
+    fprintf(dest,string,size);
     fclose(dest);
+    return 0;
 }
 
 int readFromTorrentFile(const char *srcname, struct Metainfo *mi)
@@ -215,97 +227,199 @@ int readFromTorrentFile(const char *srcname, struct Metainfo *mi)
     size = getline(&metastr, &len, src);
 
     fclose(src);
-    if (metastr)
+    if (!metastr) {
+        printf("readFormTorrentFile: error reading file, file is empty\n");
         free(metastr);
         exit(0);
-
-   be_node_t *metainfo; 
-   size = be_decode(metainfo, metastr, size);
-
-   mi->announce = be_dict_lookup_cstr(metainfo,"announce");
-   
-   be_node_t *info = be_dict_lookup(metainfo,"info", &&info);
-   mi->info.length = be_dict_lookup_cstr(info,"length");
-   mi->info.name = be_dict_lookup_cstr(info,"name");
-   mi->info.piecelen = be_dict_lookup_num(info,"piece length");
-   mi->info.pieces = be_dict_lookup_cstr(info,"pieces");
-}
-
-void *get_in_addr(struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET) {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
     }
 
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+    be_node_t *metainfo; 
+    size_t readlen;
+    metainfo = be_decode(metastr, size, &readlen);
+
+    mi->announce = strdup(be_dict_lookup_cstr(metainfo,"announce"));
+
+    be_node_t *info = be_dict_lookup(metainfo,"info",NULL);
+    mi->info.length = (uint32_t)be_dict_lookup_num(info,"length");
+    mi->info.name = strdup(be_dict_lookup_cstr(info,"name"));
+    mi->info.piecelen = be_dict_lookup_num(info,"piece length");
+    mi->info.pieces = strdup(be_dict_lookup_cstr(info,"pieces"));
+    be_free(metainfo);
+    return 0;
 }
 
-int openSocket(struct addrinfo *client) {
+
+int openClientSocket(struct addrinfo *client) {
     int sockfd, yes=1;
     struct addrinfo hints, *p;
     int status;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
     if ((status = getaddrinfo(NULL, DEFAULT_PORT, &hints, &client)) != 0) {
-        fprintf(stderr, "openSocket: getaddrinfo: %s\n", gai_strerror(status));
+        fprintf(stderr, "openClientSocket: getaddrinfo: %s\n", gai_strerror(status));
         return -1;
     }
 
     // loop through all the results and connect to the first we can
     for(p = client; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-                        p->ai_protocol)) == -1) {
+        struct sockaddr_in *sin = (struct sockaddr_in*)p->ai_addr;
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(sin->sin_addr), ip_str, INET_ADDRSTRLEN);
+        printf("Opening socket: %s:%d\n", ip_str, ntohs(sin->sin_port));
+
+        if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("client: socket");
             continue;
         }
+
         setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-        
+
         if(bind(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
             close(sockfd);
             continue;
         }
-        
+
         break;
     }
 
     if (p == NULL) {
         fprintf(stderr, "client: failed to open socket\n");
+        freeaddrinfo(client);
         return -1;
     }
 
     freeaddrinfo(client);
+//    client = p;
 
     return sockfd;
 }
 
-int connectToPeer(char* ip, char* port, int sockfd, struct addrinfo *client) {
-    char s[INET6_ADDRSTRLEN];
-    struct addrinfo hints, *peerinfo;
-    int fd, status;
+
+int connectToServer(struct Metainfo* mi, int clientSocketFD) {
+    struct addrinfo hints, *serv, *p;
+    int serverFD, status;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if ((status = getaddrinfo(mi->announce, "1234", &hints, &serv)) != 0) {
+        fprintf(stderr, "openClientSocket: getaddrinfo: %s\n", gai_strerror(status));
+        return -1;
+    }
+
+    for(p = serv; p != NULL; p = p->ai_next) {
+
+        struct sockaddr_in *sin = (struct sockaddr_in*)p->ai_addr;
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(sin->sin_addr), ip_str, INET_ADDRSTRLEN);
+        printf("Connectinng to server: %s:%d\n", ip_str, ntohs(sin->sin_port));
+
+        if ((status = connect(clientSocketFD, p->ai_addr, p->ai_addrlen)) == -1) {
+            perror("connectToServer: connect");
+            continue;
+        }
+
+        break;
+    }
+
+    freeaddrinfo(serv);
+    return 0;
+}
+
+
+int processServer(int servFD, struct Metainfo* mi) {
+
+    return 0;
+}
+
+
+void addToQuery(char* query, char* key, void* value, int len) {
+    strcat(query, "?");
+    strcat(query, key);
+    strcat(query, "=");
+}
+
+
+/* Converts an integer value to its hex character*/
+char to_hex(char code) {
+    static char hex[] = "0123456789abcdef";
+    return hex[code & 15];
+}
+
+/* Returns a url-encoded version of str */
+/* IMPORTANT: be sure to free() the returned string after use */
+char *url_encode(char *str) {
+    char *pstr = str, *buf = malloc(strlen(str) * 3 + 1), *pbuf = buf;
+    while (*pstr) {
+        if (isalnum(*pstr) || *pstr == '-' || *pstr == '_' || *pstr == '.' || *pstr == '~')
+            *pbuf++ = *pstr;
+        else if (*pstr == ' ')
+            *pbuf++ = '+';
+        else
+            *pbuf++ = '%', *pbuf++ = to_hex(*pstr >> 4), *pbuf++ = to_hex(*pstr & 15);
+        pstr++;
+    }
+    *pbuf = '\0';
+    return buf;
+}
+
+
+int generateRequestToServer(struct Metainfo* mi, char* res) {
+    res = strdup(mi->announce);
+    char infohash_str[21];
+    sprintf(infohash_str, "%s", mi->infohash);
+    strcat(res, "?infohash=");
+
+    strcat(res, url_encode(mi->infohash));
+    free(res);
+    return 0;
+}
+
+
+int connectToPeer(struct Peer* peer, int clientSocketFD) {
+    char s[INET_ADDRSTRLEN];
+    struct addrinfo hints, *peerinfo, *p;
+    int peerFD, status;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     //hints.ai_flags = AI_PASSIVE;
 
-    if ((status = getaddrinfo(ip, DEFAULT_PORT, &hints, &peerinfo)) != 0) {
+    char port_str[5], ip_str[16];
+    sprintf(port_str, "%d", peer->port);
+    inet_ntop(AF_INET, &(peer->IPv4), ip_str, INET_ADDRSTRLEN);
+
+    if ((status = getaddrinfo(ip_str, port_str, &hints, &peerinfo)) != 0) {
         fprintf(stderr, "connectToPeer: getaddrinfo: %s\n", gai_strerror(status));
         return -1;
     }
 
-    if ((fd = connect(sockfd, peerinfo->ai_addr, peerinfo->ai_addrlen)) == -1) {
-        perror("client: connect");
-        close(sockfd);
+    for(p = peerinfo; p != NULL; p = p->ai_next) {
+        if ((peerFD = connect(clientSocketFD, p->ai_addr, p->ai_addrlen)) == -1) {
+            perror("connectToPeer: connect");
+            continue;
+        }
+        break;
     }
 
-    inet_ntop(peerinfo->ai_family, get_in_addr((struct sockaddr *)peerinfo->ai_addr),
-            s, sizeof s);
+    inet_ntop(p->ai_family, (struct sockaddr_in*)p->ai_addr, s, sizeof s);
     printf("client: connecting to %s\n", s);
     freeaddrinfo(peerinfo);
+    return peerFD;
+}
+
+int processPeer(int fd, struct Metainfo* mi) {
+    return 0;
+}
+
+int sendHandshake(int fd) {
+    printf("Sending Handshake");
     return fd;
 }
 
@@ -313,18 +427,25 @@ int connectToPeer(char* ip, char* port, int sockfd, struct addrinfo *client) {
 int main(int argc, char* argv[])
 {
     srand(time(NULL));
-    struct Metainfo mi;
-    struct addrinfo client;
-    generateMetainfo("WaP.txt", &mi);
-    //    saveToTorrentFile(&mi, "test.torrent");
-    freeMetainfo(&mi);
-
-    char peer_id[20];
-    generatePeerId(&peer_id[0]);
-    int socketfd = openSocket(&client);
-    connectToPeer("localhost", DEFAULT_PORT, socketfd, &client);
-
-
-
+    testApp();
     return 0;
+}
+
+//pretend to generate uniform number
+int randint(int n)
+{
+    if ((n - 1) == RAND_MAX) {
+        return rand();
+    } else {
+        assert (n <= RAND_MAX);
+
+        int end = RAND_MAX / n;
+        assert (end > 0);
+        end *= n;
+        int r;
+
+        while ((r = rand()) >= end);
+
+        return r % n;
+    }
 }

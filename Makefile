@@ -4,7 +4,7 @@ CCFLAGS = -Wall -g
 INCLUDEDIR = -Iinclude
 LIBDIR = -Llibs 
 LIBS = -lbencode -lcrypto -lm
-TARGET = nt
+TARGET = main
 SRC = main.c
 
 $(TARGET): main.o
