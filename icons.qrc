@@ -1,0 +1,44 @@
+<RCC>
+    <qresource prefix="/">
+        <file>3dicons/add1.ico</file>
+        <file>3dicons/add2.ico</file>
+        <file>3dicons/addressbook.ico</file>
+        <file>3dicons/alarm.ico</file>
+        <file>3dicons/alert.ico</file>
+        <file>3dicons/application.ico</file>
+        <file>3dicons/back.ico</file>
+        <file>3dicons/calculator.ico</file>
+        <file>3dicons/calendar.ico</file>
+        <file>3dicons/cancel.ico</file>
+        <file>3dicons/cart.ico</file>
+        <file>3dicons/chart.ico</file>
+        <file>3dicons/chat.ico</file>
+        <file>3dicons/close.ico</file>
+        <file>3dicons/computer.ico</file>
+        <file>3dicons/configure.ico</file>
+        <file>3dicons/contact.ico</file>
+        <file>3dicons/copy.ico</file>
+        <file>3dicons/cut.ico</file>
+        <file>3dicons/delete.ico</file>
+        <file>3dicons/disc.ico</file>
+        <file>3dicons/documents.ico</file>
+        <file>3dicons/down.ico</file>
+        <file>3dicons/edit.ico</file>
+        <file>3dicons/event.ico</file>
+        <file>3dicons/export.ico</file>
+        <file>3dicons/forward.ico</file>
+        <file>3dicons/import.ico</file>
+        <file>3dicons/info.ico</file>
+        <file>3dicons/up.ico</file>
+        <file>icons/Play/Play.ico</file>
+        <file>icons/Add/Add.ico</file>
+        <file>icons/Open/Open.ico</file>
+        <file>icons/Stop/Stop.ico</file>
+        <file>icons/Check/Check.ico</file>
+        <file>icons/Delete/Delete.ico</file>
+        <file>icons/Folder/Folder.ico</file>
+        <file>icons/Upload/Upload.ico</file>
+        <file>icons/Download/Download.ico</file>
+        <file>icons/Pause/Pause.ico</file>
+    </qresource>
+</RCC>
