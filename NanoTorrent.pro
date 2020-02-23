@@ -26,7 +26,8 @@ SOURCES += \
     core/bencode/bencode.c \
     core/client.c \
     main.cpp \
-    nt_gui.cpp
+    nt_gui.cpp \
+    torrentmodel.cpp
 
 HEADERS += \
     nt_gui.h \
@@ -34,7 +35,8 @@ HEADERS += \
     newtorrentdialog.h \
     core/client.h \
     core/bencode/bencode.h \
-    core/bencode/list.h
+    core/bencode/list.h \
+    torrentmodel.h
 
 FORMS += \
     addtorrentdialog.ui \

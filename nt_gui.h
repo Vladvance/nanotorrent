@@ -2,7 +2,8 @@
 #define NT_GUI_H
 
 #include <QMainWindow>
-#include "client.h"
+#include "torrentmodel.h"
+//#include "client.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class NT_GUI; }
@@ -16,6 +17,7 @@ public:
     NT_GUI(QWidget *parent = nullptr);
     ~NT_GUI();
     void addNewTorrent(QString hash, TorrentState &ts);
+    void runCore();
 
 public slots:
     void on_createNewTorrent_clicked();
@@ -23,6 +25,7 @@ public slots:
 
 private:
     Ui::NT_GUI *ui;
-    QHash<QString, TorrentState> torrents;
+    struct AppData app;
+    TorrentModel peermodel;
 };
 #endif // NT_GUI_H

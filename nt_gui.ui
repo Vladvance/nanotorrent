@@ -113,40 +113,13 @@ QTreeView::branch:open:has-children:has-siblings  {
     <item>
      <layout class="QVBoxLayout" name="verticalLayout">
       <item>
-       <widget class="QTableWidget" name="torrentTable">
-        <property name="showGrid">
+       <widget class="QTableView" name="torrentView">
+        <property name="selectionBehavior">
+         <enum>QAbstractItemView::SelectRows</enum>
+        </property>
+        <property name="sortingEnabled">
          <bool>true</bool>
         </property>
-        <column>
-         <property name="text">
-          <string>Name</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Size</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Status</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Downloaded</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Percent</string>
-         </property>
-        </column>
-        <column>
-         <property name="text">
-          <string>Peers</string>
-         </property>
-        </column>
        </widget>
       </item>
       <item>

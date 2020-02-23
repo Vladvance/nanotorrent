@@ -15,16 +15,17 @@ extern "C" {
 #define PEER_NUM 30
 #define _OE_SOCKETS
 
+
 struct Info {
     uint32_t piecelen; //piece length
     char *pieces; //concatenated SHA1 values of pieces
     char *name; //filename
-    uint32_t length; //length of the file in bytes
+    uint64_t length; //length of the file in bytes
 };
 
 struct Metainfo {
     struct Info info;
-    char infohash[20];
+    unsigned char infohash[20];
     char *announce; //announce URL of the tracker
 };
 
@@ -38,24 +39,51 @@ enum PeerStatus {
     AM_CHOKING = (1<<0), AM_INTERESTED = (1<<2), PEER_CHOKING = (1<<3), PEER_INTERESTED = (1<<4)
 };
 
-struct Peer {
-    char peerid[21];
-    uint32_t IPv4;
-    uint16_t port;
+enum TorrentStatus {
+    SEEDING, DOWNLOADING, PAUSED, STOPPED, FAILED
+};
+
+extern const char* TORRENT_STATUS_STR[];
+
+struct DataFlowInfo {
     uint32_t uploaded;
     uint32_t downloaded;
     uint32_t left;
 };
 
-struct TorrentState {
-    struct Metainfo mi;
-    struct Peer *peers;
-    uint32_t* bitmap;
-    uint32_t pieceCount;
-    uint32_t blocksPerSecond;
+struct Peer {
+    char peerid[21];
+    uint32_t IPv4;
+    uint16_t port;
+    struct DataFlowInfo dataflow;
 };
 
-void initTorrentState(struct TorrentState* ts);
+struct TorrentState {
+    struct Metainfo mi;
+    uint8_t status;
+    uint32_t* bitmap;
+    uint32_t bitmapLength;
+    uint64_t bytesDownloaded;
+    uint32_t pieceCount;
+    uint32_t blocksPerSecond;
+    struct Peer peers[32];
+    uint8_t activePeersCount;
+    struct DataFlowInfo dataflow;
+    char* filePath;
+};
+
+struct AppData {
+    char peerid[21];
+    struct TorrentState torrents[64];
+    uint64_t activeTorrentFlags;
+    struct Peer client;
+};
+
+void runApp(struct AppData *app);
+int getEmptyTorrentSlot(struct AppData* app);
+
+void initTorrentState(struct TorrentState *ts, const char* filePath);
+int generatePiecesBitmap(struct TorrentState *ts);
 int getRequiredPieceIndex(uint32_t* bitmap, int n);
 float getPercentDownloaded(uint32_t* bitmap, int pieceCount);
 

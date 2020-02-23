@@ -28,12 +28,12 @@ QString AddTorrentDialog::getOutputPath()
 
 void AddTorrentDialog::on_browseButton_clicked()
 {
-    QString file = QFileDialog::getOpenFileName(this, tr("Open a file"), "/home", tr("Torrent file (*.torrent)"));
+    QString file = QFileDialog::getOpenFileName(this, tr("Open .torrent file"), "$HOME", tr("Torrent file (*.torrent)"));
     ui->torrentFileEdit->setText(file);
 }
 
 void AddTorrentDialog::on_browseButton2_clicked()
 {
-    QString dir = QFileDialog::getExistingDirectory(this, tr("Choose a directory to save .torrent file"), "/home");
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Choose a directory where to download files"), "$HOME");
     ui->outputEdit->setText(dir);
 }
