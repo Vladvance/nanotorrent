@@ -55,8 +55,10 @@ void runApp(struct AppData *app) {
 }
 
 int getEmptyTorrentSlot(struct AppData* app) {
+    if(app->activeTorrentFlags == 0) return 0;
     if(!~app->activeTorrentFlags) return -1;
-    return __builtin_clz(~(app->activeTorrentFlags));
+    uint64_t flags = ~(app->activeTorrentFlags);
+    return __builtin_clzll(~(app->activeTorrentFlags));
 }
 
 void* torrentRoutine(void* arg){
@@ -427,6 +429,7 @@ int generatePiecesBitmap(struct TorrentState *ts) {
 void freeTorrentState(struct TorrentState *ts)
 {
     free(ts->bitmap);
+    free(ts->filePath);
     freeMetainfo(&(ts->mi));
 }
 

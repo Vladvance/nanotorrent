@@ -190,8 +190,15 @@ QTreeView::branch:open:has-children:has-siblings  {
      <string>Settings</string>
     </property>
    </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>Help</string>
+    </property>
+    <addaction name="actionShow_cilent_info"/>
+   </widget>
    <addaction name="menuFIle"/>
    <addaction name="menuSettings"/>
+   <addaction name="menuHelp"/>
   </widget>
   <widget class="QToolBar" name="toolBar">
    <property name="windowTitle">
@@ -348,6 +355,11 @@ QTreeView::branch:open:has-children:has-siblings  {
     <string>Stop All</string>
    </property>
   </action>
+  <action name="actionShow_cilent_info">
+   <property name="text">
+    <string>Show cilent info</string>
+   </property>
+  </action>
  </widget>
  <resources>
   <include location="icons.qrc"/>
@@ -385,10 +397,27 @@ QTreeView::branch:open:has-children:has-siblings  {
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>actionShow_cilent_info</sender>
+   <signal>triggered()</signal>
+   <receiver>NT_GUI</receiver>
+   <slot>on_showClientInfo_clicked()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>423</x>
+     <y>289</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>on_addButton_clicked()</slot>
   <slot>on_createNewTorrent_clicked()</slot>
   <slot>on_addNewTorrent_clicked()</slot>
+  <slot>on_showClientInfo_clicked()</slot>
  </slots>
 </ui>

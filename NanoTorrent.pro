@@ -22,6 +22,7 @@ INCLUDEPATH += \
 
 SOURCES += \
     addtorrentdialog.cpp \
+    clientinfodialog.cpp \
     newtorrentdialog.cpp \
     core/bencode/bencode.c \
     core/client.c \
@@ -30,6 +31,7 @@ SOURCES += \
     torrentmodel.cpp
 
 HEADERS += \
+    clientinfodialog.h \
     nt_gui.h \
     addtorrentdialog.h \
     newtorrentdialog.h \
@@ -40,6 +42,7 @@ HEADERS += \
 
 FORMS += \
     addtorrentdialog.ui \
+    clientinfodialog.ui \
     newtorrentdialog.ui \
     nt_gui.ui
 

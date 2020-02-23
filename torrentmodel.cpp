@@ -3,6 +3,7 @@
 TorrentModel::TorrentModel(QObject *parent)
     : QAbstractTableModel(parent)
 {
+    indexes.reserve(64);
 }
 
 QVariant TorrentModel::headerData(int section, Qt::Orientation orientation, int role) const
@@ -19,7 +20,7 @@ int TorrentModel::rowCount(const QModelIndex &parent) const
         return 0;
 
     // FIXME: Implement me!
-    return 2;
+    return indexes.size();
 }
 
 int TorrentModel::columnCount(const QModelIndex &parent) const
@@ -28,7 +29,7 @@ int TorrentModel::columnCount(const QModelIndex &parent) const
         return 0;
 
     // FIXME: Implement me!
-    return indexes.size();
+    return 6;
 }
 
 QVariant TorrentModel::data(const QModelIndex &index, int role) const
@@ -40,18 +41,19 @@ QVariant TorrentModel::data(const QModelIndex &index, int role) const
         int row = index.row();
         int col = index.column();
         switch(col) {
-        case 0: return QString::fromUtf8(torrents[row].mi.info.name);
+        case 0: return QString::fromUtf8(torrents[indexes.at(row)].mi.info.name);
         case 1: return formatBytes(torrents[indexes.at(row)].mi.info.length);
-        case 2: return formatTorrentStatus(torrents[row]);
-        case 3: return formatBytes(torrents[row].bytesDownloaded);
-        case 4: return formatPercent((float)torrents[row].bytesDownloaded/(float)torrents[row].mi.info.length);
-        case 5: return QString::number(torrents[row].activePeersCount);
+        case 2: return formatTorrentStatus(torrents[indexes.at(row)]);
+        case 3: return formatBytes(torrents[indexes.at(row)].bytesDownloaded);
+        case 4: return formatPercent((float)torrents[indexes.at(row)].bytesDownloaded/(float)torrents[indexes.at(row)].mi.info.length);
+        case 5: return QString::number(torrents[indexes.at(row)].activePeersCount);
         }
-
     }
 
     return QVariant();
 }
+
+void TorrentModel::setTorrents(struct TorrentState* torrents) {this->torrents = torrents;}
 
 QString TorrentModel::formatBytes(const uint64_t bytes) const {
     return locale.formattedDataSize(bytes);
@@ -66,11 +68,24 @@ QString TorrentModel::formatTorrentStatus(const struct TorrentState &ts) const{
 }
 
 QString TorrentModel::formatPercent(const float percent) const{
-    return QString::number(percent, 'f', 1) + "%";
+    return QString::number(100 * percent, 'f', 1) + "%";
 }
 
-void TorrentModel::insertTorrent(struct TorrentState &ts)
+int TorrentModel::insertTorrent(struct AppData* app, QString filePath)
 {
-   insertRow(1, QModelIndex());
-   torrents.push_back(ts);
+   beginInsertRows(QModelIndex(), rowCount(), rowCount());
+
+
+   int idx = getEmptyTorrentSlot(app);
+   app->activeTorrentFlags |= 1ULL<<(63 - idx);
+
+   indexes.push_back(idx);
+
+   struct Metainfo *mi = &(app->torrents[idx].mi);
+   generateMetainfo(filePath.toLocal8Bit().constData(), mi);
+   app->torrents[idx].status = SEEDING;
+   initTorrentState(&(app->torrents[idx]), filePath.toLocal8Bit().constData());
+
+   endInsertRows();
+   return idx;
 }

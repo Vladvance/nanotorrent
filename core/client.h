@@ -83,6 +83,7 @@ void runApp(struct AppData *app);
 int getEmptyTorrentSlot(struct AppData* app);
 
 void initTorrentState(struct TorrentState *ts, const char* filePath);
+void freeTorrentState(struct TorrentState *ts);
 int generatePiecesBitmap(struct TorrentState *ts);
 int getRequiredPieceIndex(uint32_t* bitmap, int n);
 float getPercentDownloaded(uint32_t* bitmap, int pieceCount);

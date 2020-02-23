@@ -22,10 +22,11 @@ public:
 public slots:
     void on_createNewTorrent_clicked();
     void on_addNewTorrent_clicked();
+    void on_showClientInfo_clicked();
 
 private:
     Ui::NT_GUI *ui;
     struct AppData app;
-    TorrentModel peermodel;
+    TorrentModel torrentmodel;
 };
 #endif // NT_GUI_H

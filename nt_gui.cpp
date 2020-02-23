@@ -1,8 +1,10 @@
+#include "clientinfodialog.h"
 #include "newtorrentdialog.h"
 #include "nt_gui.h"
 #include "ui_nt_gui.h"
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QPointer>
 #include <addtorrentdialog.h>
 
 NT_GUI::NT_GUI(QWidget *parent)
@@ -10,13 +12,19 @@ NT_GUI::NT_GUI(QWidget *parent)
     , ui(new Ui::NT_GUI)
 {
     ui->setupUi(this);
-    ui->torrentView->setModel(&peermodel);
+    ui->torrentView->setModel(&torrentmodel);
+    torrentmodel.setTorrents(app.torrents);
     app.activeTorrentFlags = 0;
 }
 
 NT_GUI::~NT_GUI()
 {
     delete ui;
+    for(int i = 0; i < 64; i++) {
+        if (app.activeTorrentFlags & 1ULL<<(63-i)) {
+            freeTorrentState(&(app.torrents[i]));
+        }
+    }
 }
 
 void NT_GUI::on_createNewTorrent_clicked()
@@ -26,19 +34,11 @@ void NT_GUI::on_createNewTorrent_clicked()
     if(dialog.exec() == QDialog::Accepted) {
         QString file = dialog.getFile();
         QString outpath = dialog.getOutputPath();
-
-        int idx = getEmptyTorrentSlot(&(this->app));
-        app.activeTorrentFlags |= 1ULL<<(63 - idx);
-
-        struct Metainfo *mi = &(app.torrents[idx].mi);
-        generateMetainfo(file.toLocal8Bit().constData(), mi);
-        app.torrents[idx].status = SEEDING;
-        initTorrentState(&(app.torrents[idx]), file.toLocal8Bit().constData());
+        int idx = torrentmodel.insertTorrent(&app, file);
 
         if(!outpath.isEmpty()) {
-            saveToTorrentFile(mi, outpath.toLocal8Bit().constData());
+            saveToTorrentFile(&(app.torrents[idx].mi), outpath.toLocal8Bit().constData());
         }
-//        peermodel.insertRows(row, 1, this);
     }
 }
 
@@ -54,6 +54,19 @@ void NT_GUI::on_addNewTorrent_clicked()
         int idx = getEmptyTorrentSlot(&(this->app));
         readFromTorrentFile(file.toLocal8Bit().constData(), &(app.torrents[idx].mi));
     }
+}
+
+void NT_GUI::on_showClientInfo_clicked()
+{
+    static QPointer <ClientInfoDialog> dialog;
+    if(!dialog) {
+        dialog = new ClientInfoDialog();
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+    }
+    dialog->setPeerId("TestPeerId");
+    dialog->setIP("TestIP");
+    dialog->setPort("TestPort");
+    dialog->show();
 }
 
 void NT_GUI::runCore()

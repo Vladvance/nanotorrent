@@ -21,11 +21,12 @@ public:
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
-    void insertTorrent(TorrentState &ts);
+    int insertTorrent(AppData *app, QString filePath);
 
+    void setTorrents(TorrentState *torrents);
 private:
         const struct TorrentState* torrents;
-        QList<int> indexes;
+        QVector<int> indexes;
         const QLocale locale = QLocale::c();
         const QString columns[6] = {"Name", "Size", "Status", "Downloaded", "Percent", "Peers"};
         QString formatBytes(const uint64_t bytes) const;
