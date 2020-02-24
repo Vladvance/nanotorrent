@@ -43,6 +43,10 @@ enum TorrentStatus {
     SEEDING, DOWNLOADING, PAUSED, STOPPED, FAILED
 };
 
+enum MessageType {
+     KEEP_ALIVE_MSGID, CHOKE_MSGID, UNCHOKE_MSGID, INTERESTED_MSGID, NOT_INTERESTED_MSGID, HAVE_MSGID, BITFIELD_MSGID, REQUEST_MSGID, PIECE_MSGID, CANCEL_MSGID, PORT_MSGID, HANDSHAKE_MSGID
+};
+
 extern const char* TORRENT_STATUS_STR[];
 
 struct DataFlowInfo {
@@ -80,6 +84,7 @@ struct AppData {
 };
 
 void runApp(struct AppData *app);
+void* listenerRoutine(void* arg);
 int getEmptyTorrentSlot(struct AppData* app);
 
 void initTorrentState(struct TorrentState *ts, const char* filePath);

@@ -22,6 +22,7 @@ extern "C" {
 #include <openssl/sha.h>
 
 #include "bencode.h"
+#include "packdata.h"
 #include "client.h"
 
 
@@ -33,9 +34,9 @@ void strip_ext(char *fname);
 void setBIt(char* bitmap, int n, int index);
 char* url_encode(char* str);
 
-int sendall(int dest_fd, char* buf, int *len);
+int sendall(int dest_fd, unsigned char *buf, int *len);
 
-int openClientSocket();
+int openServerSocket();
 int connectToTracker(char* trackerAddr, int clientFd);
 void* torrentRoutine(void*);
 //void* trackerRoutine(void*);
@@ -44,6 +45,8 @@ void* peerRoutine(void*);
 
 void runApp(struct AppData *app) {
     pthread_t torrent_threads[64];
+    pthread_t server_thread;
+    pthread_create(&server_thread, NULL, serverRoutine, NULL);
     printf("Starting app\n");
 
 //    if(app->activeTorrentFlags == 0) return;
@@ -57,8 +60,13 @@ void runApp(struct AppData *app) {
 int getEmptyTorrentSlot(struct AppData* app) {
     if(app->activeTorrentFlags == 0) return 0;
     if(!~app->activeTorrentFlags) return -1;
-    uint64_t flags = ~(app->activeTorrentFlags);
     return __builtin_clzll(~(app->activeTorrentFlags));
+}
+
+void *serverRoutine(void* arg) {
+    int serverFD = openServerSocket(DEFAULT_PORT);
+
+
 }
 
 void* torrentRoutine(void* arg){
@@ -135,7 +143,7 @@ int prepareTrackerRequest(char* req, struct Metainfo* mi) {
 void* peerRoutine(void* torrentState) {
 //    struct TorrentState *ts = (struct TorrentState*) torrentState;
 
-    int clientFd = openClientSocket();
+    int clientFd = openServerSocket();
 //    int trackerFd = connectToTracker("localhost", clientFd);
     const char* msg = "Hello World!\n";
     int len = strlen(msg);
@@ -262,6 +270,95 @@ void saveToTorrentFile(struct Metainfo *mi, const char *destPath) {
     free(string);
     fclose(dest);
 }
+
+
+int sendMessage(int fd, int msgid, struct AppData *app, int torr_idx) {
+    int origmsglen, msglen, status, piece_idx = 0, bitfield_length;
+    char* bitfield;
+    switch(msgid) {
+    case HANDSHAKE_MSGID:
+    {
+        origmsglen = msglen = 69;
+        unsigned char hs_buf[69];
+        pack(hs_buf, "CsQ20s20s", 19, "BitTorrent protocol", 0ULL, app->torrents[torr_idx].mi.infohash, app->peerid);
+        status = sendall(fd, hs_buf, &msglen);
+        break;
+    }
+    case KEEP_ALIVE_MSGID:
+    {
+        origmsglen = msglen = 4;
+        unsigned char ka_buf[4];
+        pack(ka_buf, "L", KEEP_ALIVE_MSGID);
+        status = sendall(fd, ka_buf, &msglen);
+        break;
+    }
+    case CHOKE_MSGID:
+    case UNCHOKE_MSGID:
+    case INTERESTED_MSGID:
+    case NOT_INTERESTED_MSGID:
+    {
+        origmsglen = msglen = 5;
+        unsigned char chk_buf[5];
+        pack(chk_buf, "Lc", 1, msgid);
+        status = sendall(fd, chk_buf, &msglen);
+        break;
+    }
+    case HAVE_MSGID:
+    {
+        origmsglen = msglen = 9;
+        unsigned char hv_buf[9];
+        pack(hv_buf, "LcL", 5, HAVE_MSGID, piece_idx);
+        status = sendall(fd, hv_buf, &msglen);
+        break;
+    }
+    case BITFIELD_MSGID:
+    {
+        origmsglen = msglen = 9;
+        unsigned char bf_buf[9];
+        pack(bf_buf, "Lcs", 1 + bitfield_length, BITFIELD_MSGID, bitfield);
+        status = sendall(fd, bf_buf, &msglen);
+        break;
+    }
+    case REQUEST_MSGID:
+    case CANCEL_MSGID:
+    {
+        int block_begin, block_length;
+        origmsglen = msglen = 18;
+        unsigned char bf_buf[9];
+        pack(bf_buf, "LcLLL", 13, msgid, piece_idx, block_begin, block_length);
+        status = sendall(fd, bf_buf, &msglen);
+        break;
+    }
+    case PIECE_MSGID:
+    {
+        int block_begin, block_length;
+        unsigned char* block_data;
+        origmsglen = msglen = 18;
+        unsigned char bf_buf[9];
+        pack(bf_buf, "LcLLL", 13 + block_length, PIECE_MSGID, piece_idx, block_begin);
+        status = sendall(fd, bf_buf, &msglen);
+        status = sendall(fd, block_data, &block_length);
+        break;
+    }
+    case PORT_MSGID:
+    {
+        uint16_t port;
+        origmsglen = msglen = 7;
+        unsigned char bf_buf[7];
+        pack(bf_buf, "LcH", 3, PORT_MSGID, port);
+        status = sendall(fd, bf_buf, &msglen);
+        break;
+    }
+    }
+    if(status == -1) {
+        perror("sendMessage: ");
+    }
+    if(origmsglen != msglen) return -1;
+    return status;
+}
+
+
+
 
 int readFromTorrentFile(const char *srcname, struct Metainfo *mi)
 {
@@ -455,7 +552,7 @@ int getRequiredPieceIndex(uint32_t *bitmap, int n)
     return -1;
 }
 
-int openClientSocket() {
+int openServerSocket(const char* port) {
     struct addrinfo* client;
     int sockfd, yes=1;
     struct addrinfo hints, *p;
@@ -466,8 +563,8 @@ int openClientSocket() {
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if ((status = getaddrinfo(NULL, DEFAULT_PORT, &hints, &client)) != 0) {
-        fprintf(stderr, "openClientSocket: getaddrinfo: %s\n", gai_strerror(status));
+    if ((status = getaddrinfo(NULL, port, &hints, &client)) != 0) {
+        fprintf(stderr, "openServerSocket: getaddrinfo: %s\n", gai_strerror(status));
         return -1;
     }
 
@@ -479,11 +576,14 @@ int openClientSocket() {
         printf("Opening socket: %s:%d\n", ip_str, ntohs(sin->sin_port));
 
         if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-            perror("client: socket");
+            perror("openServerSocket: socket");
             continue;
         }
 
-        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+        if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+            perror("openServersetsockopt");
+            continue;
+          }
 
         if(bind(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
             close(sockfd);
@@ -493,14 +593,16 @@ int openClientSocket() {
         break;
     }
 
+    freeaddrinfo(client);
+
     if (p == NULL) {
-        fprintf(stderr, "client: failed to open socket\n");
-        freeaddrinfo(client);
+        fprintf(stderr, "openServerSocket: failed to open socket\n");
         return -1;
     }
 
-    freeaddrinfo(client);
-    //    client = p;
+    if(listen(sockfd, 10) == -1) {
+        return -1;
+    }
 
     return sockfd;
 }
@@ -538,7 +640,7 @@ int connectToTracker(char* trackerAddr, int clientSocketFD) {
     return 0;
 }
 
-int sendall(int dst, char *buf, int *len)
+int sendall(int dst, unsigned char *buf, int *len)
 {
     int total = 0;        // how many bytes we've sent
     int bytesleft = *len; // how many we have left to send
