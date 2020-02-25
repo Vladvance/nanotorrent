@@ -44,8 +44,44 @@ enum TorrentStatus {
 };
 
 enum MessageType {
-     KEEP_ALIVE_MSGID, CHOKE_MSGID, UNCHOKE_MSGID, INTERESTED_MSGID, NOT_INTERESTED_MSGID, HAVE_MSGID, BITFIELD_MSGID, REQUEST_MSGID, PIECE_MSGID, CANCEL_MSGID, PORT_MSGID, HANDSHAKE_MSGID
+     CHOKE_MSGID, UNCHOKE_MSGID, INTERESTED_MSGID, NOT_INTERESTED_MSGID, HAVE_MSGID, BITFIELD_MSGID, REQUEST_MSGID, PIECE_MSGID, CANCEL_MSGID, HANDSHAKE_MSGID, KEEP_ALIVE_MSGID
 };
+
+struct Message {
+    uint8_t id;
+    uint32_t padded[3];
+};
+
+struct HaveMessage {
+    uint8_t id;
+    uint32_t piece_idx;
+    char padded[8];
+};
+
+struct BitfieldMessage {
+    uint8_t id;
+    uint16_t bitfield_length;
+    char* bitfield_data;
+    char padded[9];
+};
+
+//also used for cancel message
+struct RequestMessage {
+    uint8_t id;
+    uint32_t piece_idx;
+    uint32_t block_begin;
+    uint32_t block_length;
+};
+
+struct PieceMessage {
+    uint8_t id;
+    uint32_t piece_idx;
+    uint32_t block_begin;
+    uint16_t block_length;
+    unsigned char* block_data;
+    char padded;
+};
+
 
 extern const char* TORRENT_STATUS_STR[];
 
@@ -84,6 +120,7 @@ struct AppData {
 };
 
 void runApp(struct AppData *app);
+int addNewTorrent(struct AppData *app, const char* filePath);
 void* listenerRoutine(void* arg);
 int getEmptyTorrentSlot(struct AppData* app);
 
@@ -96,7 +133,7 @@ float getPercentDownloaded(uint32_t* bitmap, int pieceCount);
 
 int generatePeerId();
 void generateInfoHash(struct Metainfo *mi);
-void generateMetainfo(const char *originFileName, struct Metainfo *mi);
+void generateMetainfo(const char *originFileName, const char *announce, struct Metainfo *mi);
 void saveToTorrentFile(struct Metainfo *mi, const char *destName);
 int readFromTorrentFile(const char *srcName, struct Metainfo *mi);
 void freeMetainfo(struct Metainfo *mi);

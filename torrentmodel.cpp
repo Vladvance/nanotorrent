@@ -76,16 +76,8 @@ int TorrentModel::insertTorrent(struct AppData* app, QString filePath)
    beginInsertRows(QModelIndex(), rowCount(), rowCount());
 
 
-   int idx = getEmptyTorrentSlot(app);
-   app->activeTorrentFlags |= 1ULL<<(63 - idx);
-
+   int idx = addNewTorrent(app, filePath.toLocal8Bit().constData());
    indexes.push_back(idx);
-
-   struct Metainfo *mi = &(app->torrents[idx].mi);
-   generateMetainfo(filePath.toLocal8Bit().constData(), mi);
-   app->torrents[idx].status = SEEDING;
-   initTorrentState(&(app->torrents[idx]), filePath.toLocal8Bit().constData());
-
    endInsertRows();
    return idx;
 }

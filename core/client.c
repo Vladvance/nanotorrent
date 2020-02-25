@@ -34,27 +34,32 @@ void strip_ext(char *fname);
 void setBIt(char* bitmap, int n, int index);
 char* url_encode(char* str);
 
-int sendall(int dest_fd, unsigned char *buf, int *len);
+int sendall(int dst, unsigned char *buf, int *len);
+int receiveall(int src, unsigned char *buf, int *len);
 
 int openServerSocket();
 int connectToTracker(char* trackerAddr, int clientFd);
 void* torrentRoutine(void*);
-//void* trackerRoutine(void*);
+void* serverRoutine(void*);
 int prepareTrackerRequest(char* req, struct Metainfo* mi);
 void* peerRoutine(void*);
 
 void runApp(struct AppData *app) {
-    pthread_t torrent_threads[64];
     pthread_t server_thread;
     pthread_create(&server_thread, NULL, serverRoutine, NULL);
     printf("Starting app\n");
+}
 
-//    if(app->activeTorrentFlags == 0) return;
-//    for(int i = 0; i < 64; i++) {
-//        if(app->activeTorrentFlags & 1<<i) {
-//            pthread_create(&torrent_threads[i], NULL, torrentRoutine, NULL);
-//        }
-//    }
+int addNewTorrent(struct AppData* app, char* filePath) {
+   int idx = getEmptyTorrentSlot(app);
+   if(idx == -1) return -1;
+   app->activeTorrentFlags |= 1ULL<<(63 - idx);
+
+   struct Metainfo *mi = &(app->torrents[idx].mi);
+   generateMetainfo(filePath, mi);
+   app->torrents[idx].status = SEEDING;
+   initTorrentState(&(app->torrents[idx]), filePath);
+   return idx;
 }
 
 int getEmptyTorrentSlot(struct AppData* app) {
@@ -65,7 +70,6 @@ int getEmptyTorrentSlot(struct AppData* app) {
 
 void *serverRoutine(void* arg) {
     int serverFD = openServerSocket(DEFAULT_PORT);
-
 
 }
 
@@ -178,7 +182,8 @@ void generateInfoHash(struct Metainfo *mi) {
     BE_FREE(info);
 }
 
-void generateMetainfo(const char *originFilePath, struct Metainfo *mi) {
+
+void generateMetainfo(const char *originFilePath, const char* announce, struct Metainfo *mi) {
     unsigned char ibuf[PIECE_LENGTH], obuf[20];
 
     FILE *origin = fopen(originFilePath, "r+");
@@ -194,9 +199,13 @@ void generateMetainfo(const char *originFilePath, struct Metainfo *mi) {
         exit(1);
     }
 
-    mi->announce = strdup("localhost");
+    mi->announce = strdup(announce);
     mi->info.piecelen = PIECE_LENGTH;
-    mi->info.name = strdup(basename((char*)originFilePath));
+
+    //basename is not immutable, so create copy
+    char path_buf[200];
+    strcpy(path_buf, originFilePath);
+    mi->info.name = strdup(basename(path_buf));
     mi->info.length = stat_buf.st_size;
 
     //size needed for pieces field (Npieces * 40 + 1)
@@ -272,23 +281,40 @@ void saveToTorrentFile(struct Metainfo *mi, const char *destPath) {
 }
 
 
-int sendMessage(int fd, int msgid, struct AppData *app, int torr_idx) {
-    int origmsglen, msglen, status, piece_idx = 0, bitfield_length;
-    char* bitfield;
-    switch(msgid) {
-    case HANDSHAKE_MSGID:
-    {
-        origmsglen = msglen = 69;
-        unsigned char hs_buf[69];
-        pack(hs_buf, "CsQ20s20s", 19, "BitTorrent protocol", 0ULL, app->torrents[torr_idx].mi.infohash, app->peerid);
-        status = sendall(fd, hs_buf, &msglen);
-        break;
+int sendHandshake(int fd, struct AppData *app, int torr_idx) {
+    int hs_len = 68;
+    unsigned char hs_buf[68];
+
+    pack(hs_buf, "C19sQ20s20s", 19, "BitTorrent protocol", 0ULL, app->torrents[torr_idx].mi.infohash, app->peerid);
+    int status = sendall(fd, hs_buf, &hs_len);
+    return status;
+}
+
+
+int receiveHandshake(int fd, struct Handshake* hs) {
+    int hs_len = 68;
+    unsigned char hs_buf[68];
+    if(receiveall(fd, hs_buf, &hs_len) == -1) {
+        perror("receiveHandshake: receiveall: ");
+        return -1;
     }
+    uint8_t pstrlen;
+    char pstr[19];
+    uint8_t reserved;
+    unpack(&hs_buf[28], "C19sQ20s20s", &pstrlen, pstr, &reserved, hs->info_hash, hs->peer_id);
+    if(strncmp("BitTorent protocol", pstr, 19) != 0) return -1;
+    return 0;
+}
+
+
+int sendMessage(uint8_t fd, struct Message* msg) {
+    int msglen, status;
+    switch(msg->id) {
     case KEEP_ALIVE_MSGID:
     {
-        origmsglen = msglen = 4;
+        msglen = 4;
         unsigned char ka_buf[4];
-        pack(ka_buf, "L", KEEP_ALIVE_MSGID);
+        pack(ka_buf, "L", 0);
         status = sendall(fd, ka_buf, &msglen);
         break;
     }
@@ -297,67 +323,135 @@ int sendMessage(int fd, int msgid, struct AppData *app, int torr_idx) {
     case INTERESTED_MSGID:
     case NOT_INTERESTED_MSGID:
     {
-        origmsglen = msglen = 5;
-        unsigned char chk_buf[5];
-        pack(chk_buf, "Lc", 1, msgid);
-        status = sendall(fd, chk_buf, &msglen);
+        msglen = 5;
+        unsigned char buf[5];
+        pack(buf, "Lc", 1, msg->id);
+        status = sendall(fd, buf, &msglen);
         break;
     }
     case HAVE_MSGID:
     {
-        origmsglen = msglen = 9;
+        msglen = 9;
         unsigned char hv_buf[9];
-        pack(hv_buf, "LcL", 5, HAVE_MSGID, piece_idx);
+        struct HaveMessage* havemsg = (struct HaveMessage*)msg;
+        pack(hv_buf, "LcL", 5, HAVE_MSGID, havemsg->piece_idx);
         status = sendall(fd, hv_buf, &msglen);
         break;
     }
     case BITFIELD_MSGID:
     {
-        origmsglen = msglen = 9;
+        msglen = 9;
         unsigned char bf_buf[9];
-        pack(bf_buf, "Lcs", 1 + bitfield_length, BITFIELD_MSGID, bitfield);
+        struct BitfieldMessage* bfmsg = (struct BitfieldMessage*)msg;
+        //bitfield_data MUST be null terminated
+        pack(bf_buf, "Lcs", 1 + bfmsg->bitfield_length, BITFIELD_MSGID, bfmsg->bitfield_data);
         status = sendall(fd, bf_buf, &msglen);
         break;
     }
     case REQUEST_MSGID:
     case CANCEL_MSGID:
     {
-        int block_begin, block_length;
-        origmsglen = msglen = 18;
-        unsigned char bf_buf[9];
-        pack(bf_buf, "LcLLL", 13, msgid, piece_idx, block_begin, block_length);
+        msglen = 17;
+        unsigned char bf_buf[17];
+        struct RequestMessage* reqmsg = (struct RequestMessage*)msg;
+        pack(bf_buf, "LcLLL", 13, msg->id, reqmsg->piece_idx, reqmsg->block_begin, reqmsg->block_length);
         status = sendall(fd, bf_buf, &msglen);
         break;
     }
     case PIECE_MSGID:
     {
-        int block_begin, block_length;
-        unsigned char* block_data;
-        origmsglen = msglen = 18;
-        unsigned char bf_buf[9];
-        pack(bf_buf, "LcLLL", 13 + block_length, PIECE_MSGID, piece_idx, block_begin);
+        msglen = 13;
+        unsigned char bf_buf[13];
+        struct PieceMessage* piecemsg = (struct PieceMessage*)msg;
+        pack(bf_buf, "LcLLL", 9 + piecemsg->block_length, PIECE_MSGID, piecemsg->piece_idx, piecemsg->block_begin);
         status = sendall(fd, bf_buf, &msglen);
-        status = sendall(fd, block_data, &block_length);
-        break;
-    }
-    case PORT_MSGID:
-    {
-        uint16_t port;
-        origmsglen = msglen = 7;
-        unsigned char bf_buf[7];
-        pack(bf_buf, "LcH", 3, PORT_MSGID, port);
-        status = sendall(fd, bf_buf, &msglen);
+        int block_length = piecemsg->block_length;
+        status = sendall(fd, piecemsg->block_data, &block_length);
+        free(piecemsg->block_data);
         break;
     }
     }
     if(status == -1) {
         perror("sendMessage: ");
     }
-    if(origmsglen != msglen) return -1;
     return status;
 }
 
 
+int receiveMessage(int fd, struct Message* msg) {
+    int status;
+
+    int msglen = 5;
+    unsigned char header_buf[5];
+    status = receiveall(fd, header_buf, &msglen);
+    if(status == -1) {
+        perror("receiveMessage: receiveall: ");
+        return -1;
+    }
+    unpack(header_buf, "Lc", &msglen, msg->id);
+    if(msglen == 0) {
+        msg->id = KEEP_ALIVE_MSGID;
+    } else {
+        msglen--; //subtract <id> length
+    }
+
+    switch(msg->id) {
+    case KEEP_ALIVE_MSGID:
+    case CHOKE_MSGID:
+    case UNCHOKE_MSGID:
+    case INTERESTED_MSGID:
+    case NOT_INTERESTED_MSGID:
+    {
+        break;
+    }
+    case HAVE_MSGID:
+    {
+        struct HaveMessage* havemsg = (struct HaveMessage*)msg;
+        unsigned char hv_buf[4];
+        status = receiveall(fd, hv_buf, &msglen);
+        unpack(hv_buf, "L", &havemsg->piece_idx);
+        break;
+    }
+    case BITFIELD_MSGID:
+    {
+        struct BitfieldMessage* bfmsg = (struct BitfieldMessage*)msg;
+        bfmsg->bitfield_data = (unsigned char*)malloc(msglen);
+        bfmsg->bitfield_length = msglen;
+        status = receiveall(fd, bfmsg->bitfield_data, &msglen);
+        if(status == -1) free(bfmsg->bitfield_data);
+        break;
+    }
+    case REQUEST_MSGID:
+    case CANCEL_MSGID:
+    {
+        struct RequestMessage* reqmsg = (struct RequestMessage*)msg;
+        unsigned char bf_buf[12];
+        status = receiveall(fd, bf_buf, &msglen);
+        unpack(bf_buf, "LLL", &reqmsg->piece_idx, &reqmsg->block_begin, &reqmsg->block_length);
+        break;
+    }
+    case PIECE_MSGID:
+    {
+        struct PieceMessage* piecemsg = (struct PieceMessage*)msg;
+        unsigned char bf_buf[8];
+        status = receiveall(fd, bf_buf, &msglen);
+        unpack(bf_buf, "LL", &piecemsg->piece_idx, &piecemsg->block_begin);
+
+        piecemsg->block_length = msglen - 8; //subtract <index> and <begin> lengths
+        piecemsg->block_data = (unsigned char*)malloc(piecemsg->block_length);
+        int block_length = piecemsg->block_length;
+        status = receiveall(fd, piecemsg->block_data, &block_length);
+        if(status == -1) free(piecemsg->block_data);
+        break;
+    }
+    }
+
+    if(status == -1) {
+        perror("receiveMessage: ");
+    }
+
+    return status;
+}
 
 
 int readFromTorrentFile(const char *srcname, struct Metainfo *mi)
@@ -656,6 +750,24 @@ int sendall(int dst, unsigned char *buf, int *len)
     *len = total; // return number actually sent here
 
     return n==-1?-1:0; // return -1 on failure, 0 on success
+}
+
+int receiveall(int src, unsigned char *buf, int *len) {
+
+    int total = 0;
+    int bytesleft = *len;
+    int n;
+
+    while(total < *len) {
+        n = recv(src, (void*)buf+total, bytesleft, 0);
+        if (n == -1) { break; }
+        total += n;
+        bytesleft -= n;
+    }
+
+    *len = total;
+
+    return n==-1?-1:0;
 }
 
 /* Converts an integer value to its hex character*/
